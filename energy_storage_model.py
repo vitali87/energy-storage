@@ -1,8 +1,42 @@
 import pyomo.environ as pyo
 from pyomo.opt import SolverFactory
 import csv
+import pandas as pd
+import numpy as np
 
-# Any pre-processing is done in helper_script.py to improve the overall readability of the code!
+# Pre-processing part
+# Global parameters
+N_hlf_hrs = 48
+t = range(1,N_hlf_hrs+1)
+
+# Reading Market 1 and 3 data
+df12 = pd.read_excel(r'Copy of Market Data.xlsx',
+                    sheet_name = "Half-hourly data",
+                    usecols = "B:C")
+y1 = df12['Market 1 Price [£/MWh]']
+y2 = df12['Market 2 Price [£/MWh]']
+y1 = y1[0:48]
+y2 = y2[0:48]
+
+M1data = {'I':1,'J':t,'p':y1} 
+M2data = {'I':2,'J':t,'p':y2} 
+
+# Putting Market 3 data in a half-hour format
+df3 = pd.read_excel(r'Copy of Market Data.xlsx',
+                    sheet_name = "Daily data",
+                    usecols = "A:B")
+x = np.array(df3["Market 3 Price [£/MWh]"])
+y3 = np.repeat(x, N_hlf_hrs, axis=0)
+y3 = y3[0:48]
+
+M3data = {'I':3,'J':t,'p':y3} 
+
+# COnverting to Panda's df and row-binding
+M1 = pd.DataFrame(M1data)
+M2 = pd.DataFrame(M2data)
+M3 = pd.DataFrame(M3data)
+M = pd.concat([M1,M2,M3], ignore_index=True)
+M.to_csv("data.csv", index=False)
 
 # Modelling part
 opt = pyo.SolverFactory('glpk')
@@ -10,7 +44,7 @@ opt = pyo.SolverFactory('glpk')
 model = pyo.AbstractModel()
 
 model.m = pyo.Param(within=pyo.NonNegativeIntegers,default = 3)
-model.n = pyo.Param(within=pyo.NonNegativeIntegers,default = 48)
+model.n = pyo.Param(within=pyo.NonNegativeIntegers,default = N_hlf_hrs)
 
 model.I = pyo.RangeSet(1, model.m)
 model.J = pyo.RangeSet(1, model.n)
@@ -100,19 +134,21 @@ model.ModeRelation2Constraint = pyo.Constraint(model.J, rule=cons_mode_relation2
 
 data = pyo.DataPortal()
 
-data.load(filename = 'boo.csv',  
-            param = model.p 
-            )
+data.load(filename = 'data.csv',  
+            param = model.p)
 
 instance = model.create_instance(data)
 results = opt.solve(instance)
-instance.display()
 
 # Output generation part
 with open('result.csv','w') as f1:
     for v in instance.component_objects(pyo.Var, active = True):
         varobject = getattr(instance, str(v))
-        writer = csv.writer(f1, delimiter = '\t',lineterminator = '\n',)
+        writer = csv.writer(f1, 
+                            delimiter = '\t',
+                            lineterminator = '\n',)
         for index in varobject:
-            row =  (v,index, varobject[index].value)
+            row =  (v,
+                    index, 
+                    varobject[index].value)
             writer.writerow(row)        
