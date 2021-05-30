@@ -1,11 +1,11 @@
 # energy-storage
 A simple energy storage arbitrage profit maximisation model written in Python.
 
-##Context
+## Context
 
 In typical liberalised wholesale electricity markets, power generators sell the energy they produce and retailers buy energy on behalf of their customers.  Like other goods, the price of electricity depends on supply and demand.  However, both demand and supply fluctuate significantly with time, due to factors such as weather variability and daily work patterns. Although it is possible to store electricity (for example in batteries or hydroelectric dams), it is not cheap to do so. As a result, wholesale electricity prices vary significantly in the short term (e.g. over the course of a day), based on the underlying supply and demand. This price variability creates an opportunity for generators with storage capabilities to generate profits by buying electricity when prices are low and selling when prices are high.
 
-##Task
+## Task
 
 This is an optimisation model in Python that charge/discharge the battery over the time period provided (2018-2020) in order to maximise profits. It is assumed that the battery is a price-taker (ie. the actions of the battery have no impact on the market prices).
 In this exercise, we allow the battery to trade across 3 wholesale electricity markets, with prices included in the data file. In each of these markets, the battery can choose to provide some power for some duration of time. The units of the market price are in £/MWh. If the battery were to provide 5MW of power for 30 mins when the market price was 50 £/MWh, it would be paid £125 (5 * 0.5 * 50).
