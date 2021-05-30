@@ -4,9 +4,15 @@ import csv
 import pandas as pd
 import numpy as np
 
+## Global declarations ####
+N_hlf_hrs = 48 # There are 48 half-hours in a day
+cap_max = 4 # max volume of storage is 4MWh
+discharge_rate,charge_rate = 1,1 # discharge/charge rate possible for half hour is 1MW
+N_markets = 3 # How many market are being considered?
+
 ## Pre-processing part####
-# Global declarations
-N_hlf_hrs = 48
+
+# Calculate how many days there are in the given period
 t = range(1,N_hlf_hrs + 1)
 dt = pd.date_range(start='01/01/2018 00:00:00', 
                    end='31/12/2020 23:30:00', 
@@ -27,14 +33,20 @@ df3 = pd.read_excel(r'Copy of Market Data.xlsx',
 x = np.array(df3["Market 3 Price [£/MWh]"])
 y3 = np.repeat(x, N_hlf_hrs, axis=0)
 
-## Iterative optimisation: for each day ####
+# Inital value for storage level at the onset of optimisation. 
+# Assuming it is half full at the start. 
+# It will naturally fluctuate after each optimisation
+cap_end = cap_max/2 
+
+## Iterative optimisation for each day ####
 for k in range(1, N_days):
-    y1_ = y1[(k-1)*48:k*48]
-    y2_ = y2[(k-1)*48:k*48]
+
+    # Decomposing all data into daily chunks
+    y1_ = y1[(k-1)*N_hlf_hrs:k*N_hlf_hrs]
+    y2_ = y2[(k-1)*N_hlf_hrs:k*N_hlf_hrs]
+    y3_ = y3[(k-1)*N_hlf_hrs:k*N_hlf_hrs]
     M1data = {'I':1,'J':t,'p':y1_} 
-    M2data = {'I':2,'J':t,'p':y2_} 
-    
-    y3_ = y3[(k-1)*48:k*48]
+    M2data = {'I':2,'J':t,'p':y2_}   
     M3data = {'I':3,'J':t,'p':y3_} 
     
     # Converting to Panda's df and row-binding
@@ -42,6 +54,8 @@ for k in range(1, N_days):
     M2 = pd.DataFrame(M2data)
     M3 = pd.DataFrame(M3data)
     M = pd.concat([M1,M2,M3], ignore_index=True)
+
+    # Saving input file for the Abstract model
     M.to_csv("data.csv", index=False)
     
     ### Modelling part ####
@@ -49,7 +63,7 @@ for k in range(1, N_days):
     
     model = pyo.AbstractModel()
     
-    model.m = pyo.Param(within=pyo.NonNegativeIntegers,default = 3)
+    model.m = pyo.Param(within=pyo.NonNegativeIntegers,default = N_markets)
     model.n = pyo.Param(within=pyo.NonNegativeIntegers,default = N_hlf_hrs)
     
     model.I = pyo.RangeSet(1, model.m)
@@ -57,9 +71,9 @@ for k in range(1, N_days):
 
     model.p = pyo.Param(model.I,model.J) # Prices in Market 1 
 
-    model.cap = pyo.Param(default = 4) # Maximum volume of energy that the battery can store (MWh)
-    model.dch_r = pyo.Param(default = 1) # discharge rate possible for half hour is 1MW
-    model.ch_r = pyo.Param(default = 1) # charge rate possible for half hour is 1MW
+    model.cap = pyo.Param(default = cap_max) # Maximum volume of energy that the battery can store (MWh)
+    model.dch_r = pyo.Param(default = discharge_rate) # discharge rate possible for half hour is 1MW
+    model.ch_r = pyo.Param(default = charge_rate) # charge rate possible for half hour is 1MW
 
     # Discharging variables for Market 1,2,3
     model.x = pyo.Var(model.I,model.J, domain=pyo.NonNegativeReals)
@@ -98,7 +112,7 @@ for k in range(1, N_days):
 
     def cons_volume_change(m,j):
         if j == 1:
-            return (m.v[j] == m.cap/2) # assuming storage volume is half full at the start
+            return (m.v[j] == cap_end) # storage volume resumes from the same level where it stopped in previous optimisation
         return  (m.v[j] ==  m.v[j-1] - sum(m.x[i,j] - m.y[i,j] for i in m.I))
     model.VolumeChangeConstraint = pyo.Constraint(model.J, rule=cons_volume_change)
 
@@ -138,12 +152,17 @@ for k in range(1, N_days):
         return m.mode[j] - m.mode_3 >= m.used - 1
     model.ModeRelation2Constraint = pyo.Constraint(model.J, rule=cons_mode_relation2)
 
+    ### Data read ####
     data = pyo.DataPortal()
     data.load(filename = 'data.csv',  
                 param = model.p)
-
+    
+    ### Solve the problem ####
     instance = model.create_instance(data)
     results = opt.solve(instance)
+
+    # Find the end level of storage volume from previous day which will be the start level on the next day
+    cap_end = instance.v[48].value
 
     ### Output generation part #####
     with open('result.csv','a') as f1:
@@ -156,7 +175,9 @@ for k in range(1, N_days):
                 row =  (v,
                         index, 
                         varobject[index].value)
-                writer.writerow(row)  
+                writer.writerow(row)
+
+    ### Progress of optimisation ####  
     print("Day ",k,"/",N_days," is finished")      
 
 ## Post-processing ####
