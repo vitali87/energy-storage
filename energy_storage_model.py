@@ -5,20 +5,22 @@ import pandas as pd
 import numpy as np
 
 ## Global declarations ####
-N_hlf_hrs = 48 # There are 48 half-hours in a day
+n_hlf_hrs = 48 # There are 48 half-hours in a day
 cap_max = 4 # max volume of storage is 4MWh
 discharge_rate = charge_rate = 1 # discharge/charge rate possible for half hour is 1MW
-N_markets = 3 # How many market are being considered?
+n_markets = 3 # How many market are being considered?
 dch_loss_rate = ch_loss_rate = 0.05 # Fraction of energy imported/exported from/to grid which is lost prior to reaching storage/grid 
 
 ## Pre-processing part####
 
 # Calculate number of days in given period
-t = range(1,N_hlf_hrs + 1)
+t = range(1,n_hlf_hrs + 1)
+
+# This will be used also in Post-processing part
 dt = pd.date_range(start='01/01/2018 00:00:00', 
                    end='31/12/2020 23:30:00', 
                    freq="0.5H")
-N_days = int(len(dt)/N_hlf_hrs)
+n_days = int(len(dt)/n_hlf_hrs)
 
 # Reading Market 1 and 3 data
 df12 = pd.read_excel(r'Copy of Market Data.xlsx',
@@ -32,19 +34,19 @@ df3 = pd.read_excel(r'Copy of Market Data.xlsx',
                     sheet_name = "Daily data",
                     usecols = "A:B")
 x = np.array(df3["Market 3 Price [£/MWh]"])
-y3 = np.repeat(x, N_hlf_hrs, axis=0)
+y3 = np.repeat(x, n_hlf_hrs, axis=0)
 
 # Inital value for storage level at onset of optimisation. 
 # Assuming half full at start. 
 # It'll naturally fluctuate after each optimisation
 cap_end = cap_max/2 
 
-## Iterative optimisation for each day ####
-for k in range(1, N_days):
+## Iterative optimisation part: one for each day ####
+for k in range(1, n_days + 1):
 
     # Decomposing all data into daily chunks
-    idx_start = (k-1)*N_hlf_hrs
-    idx_end = k*N_hlf_hrs
+    idx_start = (k-1)*n_hlf_hrs
+    idx_end = k*n_hlf_hrs
     y1_ = y1[idx_start:idx_end]
     y2_ = y2[idx_start:idx_end]
     y3_ = y3[idx_start:idx_end]
@@ -66,8 +68,8 @@ for k in range(1, N_days):
     
     model = pyo.AbstractModel()
     
-    model.m = pyo.Param(within=pyo.NonNegativeIntegers,default = N_markets)
-    model.n = pyo.Param(within=pyo.NonNegativeIntegers,default = N_hlf_hrs)
+    model.m = pyo.Param(within=pyo.NonNegativeIntegers,default = n_markets)
+    model.n = pyo.Param(within=pyo.NonNegativeIntegers,default = n_hlf_hrs)
     
     model.I = pyo.RangeSet(1, model.m)
     model.J = pyo.RangeSet(1, model.n)
@@ -125,7 +127,7 @@ for k in range(1, N_days):
         return sum(m.y[i,j] for i in m.I) <= m.ch_r * (1 - m.mode[j])
     model.ChargeRateCombConstraint = pyo.Constraint(model.J, rule=cons_charge_rate_combined)
 
-    if k == 295: # only happens here. Need more time to understand why optimisation is stuck on this day
+    if k == 295: # Need more time to understand why optimisation is stuck on this day: only happens here
         def cons_volume_change(m,j):
             if j == 1:
                 # Storage volume resumes from same level where it stopped in previous optimisation
@@ -201,13 +203,19 @@ for k in range(1, N_days):
     cap_end = instance.v[48].value
 
     ### Output generation part #####
-    # Results are appended in one file
+
+    # Saving profits: Results are appended in one file
     with open('profits.csv','a') as f4:
         writer4 = csv.writer(f4,
                                 delimiter = '\t',
                                 lineterminator = '\n',) 
         row4 =  -instance.obj.value
-        writer4.writerow([row4])
+        try:
+            writer4.writerow([row4]) 
+        except:
+            print("Something went wrong when writing row")
+
+    # Saving other variables
     with open('discharging.csv','a') as f1,open('charging.csv','a') as f2,open('volume.csv','a') as f3: 
         for v in instance.component_objects(pyo.Var,active = True):
             varobject = getattr(instance, str(v))
@@ -238,9 +246,10 @@ for k in range(1, N_days):
                     writer2.writerow(row2)
                     writer3.writerow(row3)
                 except:
-                    print("Something went wrong when writing the row")
+                    print("Something went wrong when writing row")
 
     ### Show progress of optimisation ####  
-    print("Day ",k,"/",N_days," optimisation finished",sep="")      
+    print("Day ",k,"/",n_days," optimisation finished",sep="")
 
-## Post-processing ####
+## Post processing ####
+profits_ = pd.read_csv("profits.csv",header=None)   
