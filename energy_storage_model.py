@@ -7,8 +7,11 @@ import numpy as np
 ## Global declarations ####
 N_hlf_hrs = 48 # There are 48 half-hours in a day
 cap_max = 4 # max volume of storage is 4MWh
-discharge_rate,charge_rate = 1,1 # discharge/charge rate possible for half hour is 1MW
+discharge_rate = charge_rate = 1 # discharge/charge rate possible for half hour is 1MW
 N_markets = 3 # How many market are being considered?
+discharge_loss_rate = charge_loss_rate = 0.05 # Fraction of energy imported/exported from/to grid that is lost prior to reaching storage/grid 
+dch_remain =  1 - discharge_loss_rate
+ch_remain =  1 - charge_loss_rate
 
 ## Pre-processing part####
 
@@ -70,16 +73,19 @@ for k in range(1, N_days):
     model.J = pyo.RangeSet(1, model.n)
 
     model.p = pyo.Param(model.I,model.J) # Prices in Market 1 
-
     model.cap = pyo.Param(default = cap_max) # Maximum volume of energy that the battery can store (MWh)
     model.dch_r = pyo.Param(default = discharge_rate) # discharge rate possible for half hour is 1MW
     model.ch_r = pyo.Param(default = charge_rate) # charge rate possible for half hour is 1MW
+    # model.dch_loss_r = pyo.Param(default = discharge_loss_rate) # discharge rate possible for half hour is 1MW
+    # model.ch_loss_r = pyo.Param(default = charge_loss_rate) # charge rate possible for half hour is 1MW
 
     # Discharging variables for Market 1,2,3
     model.x = pyo.Var(model.I,model.J, domain=pyo.NonNegativeReals)
+    model.x_r = pyo.Var(model.I,model.J, domain=pyo.NonNegativeReals) # remaining after discharge losses
 
-    # Charging variables for Market 1 and 2. Charging variable for Market 3: equal constant charge rate for each half-hour period
+    # Charging variables for Market 1,2,3. For Market 3 it is equal constant charge rate for each half-hour period
     model.y = pyo.Var(model.I, model.J, domain=pyo.NonNegativeReals)
+    model.y_r = pyo.Var(model.I, model.J, domain=pyo.NonNegativeReals) # remaining after charge losses
 
     # Volume variable
     model.v = pyo.Var(model.J, domain=pyo.NonNegativeReals)
@@ -90,7 +96,10 @@ for k in range(1, N_days):
     # Binary charging/discharging mode of Market 3: 1 - discharging, 0 - charging
     model.mode_3 = pyo.Var(domain=pyo.Binary)
 
+    # Objective function: maximise daily arbitrage profit
     def obj_expression(m):
+        # Actual export is less than what's being discharged, so being paid less based on actual electricity delivered after losses
+        # Actual import is less but we pay for the full charge amount as losses incur after electricity is taken from the grid
         return (-pyo.summation(m.p, m.x) + pyo.summation(m.p, m.y))
     model.OBJ = pyo.Objective(rule=obj_expression,sense=pyo.minimize)
 
@@ -112,7 +121,9 @@ for k in range(1, N_days):
 
     def cons_volume_change(m,j):
         if j == 1:
-            return (m.v[j] == cap_end) # storage volume resumes from the same level where it stopped in previous optimisation
+            # Storage volume resumes from the same level where it stopped in previous optimisation
+            return (m.v[j] == cap_end) 
+        # Import into storage incures losses, so actual volume imported during half-hour period is less than actual charge
         return  (m.v[j] ==  m.v[j-1] - sum(m.x[i,j] - m.y[i,j] for i in m.I))
     model.VolumeChangeConstraint = pyo.Constraint(model.J, rule=cons_volume_change)
 
@@ -152,6 +163,14 @@ for k in range(1, N_days):
         return m.mode[j] - m.mode_3 >= m.used - 1
     model.ModeRelation2Constraint = pyo.Constraint(model.J, rule=cons_mode_relation2)
 
+    # def cons_discharge_remain(m, i, j):
+    #     return m.x_r[i,j] == (1 - m.dch_loss_r) * m.x[i,j]
+    # model.DischargeRemainConstraint = pyo.Constraint(model.I,model.J, rule=cons_discharge_remain)
+
+    # def cons_charge_remain(m, i, j):
+    #     return m.y_r[i,j] == (1 - m.ch_loss_r) * m.y[i,j]
+    # model.ChargeRemainConstraint = pyo.Constraint(model.I,model.J, rule=cons_charge_remain)
+
     ### Data read ####
     data = pyo.DataPortal()
     data.load(filename = 'data.csv',  
@@ -178,6 +197,6 @@ for k in range(1, N_days):
                 writer.writerow(row)
 
     ### Progress of optimisation ####  
-    print("Day ",k,"/",N_days," is finished")      
+    print("Day ",k,"/",N_days," optimisation is finished")      
 
 ## Post-processing ####
