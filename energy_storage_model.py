@@ -41,8 +41,7 @@ cap_end = cap_max/2
 
 ## Iterative optimisation for each day ####
 for k in range(1, N_days):
-    # if k == 295:
-    #     continue
+
     # Decomposing all data into daily chunks
     idx_start = (k-1)*N_hlf_hrs
     idx_end = k*N_hlf_hrs
@@ -96,13 +95,19 @@ for k in range(1, N_days):
     model.used = pyo.Var(domain=pyo.Binary)
     # Binary charging/discharging mode of Market 3: 1 - discharging, 0 - charging
     model.mode_3 = pyo.Var(domain=pyo.Binary)
+    # Objective 
+    model.obj = pyo.Var()
 
     # Objective function: maximise daily arbitrage profit
     def obj_expression(m):
         # Actual export is less than what's being discharged, so being paid less based on actual electricity delivered after losses
         # Actual import is less but we pay for full charge amount as losses incur after electricity is taken from grid
-        return (-pyo.summation(m.p, m.x_r) + pyo.summation(m.p, m.y))
+        return (m.obj)
     model.OBJ = pyo.Objective(rule=obj_expression,sense=pyo.minimize)
+
+    def cons_obj(m):
+        return m.obj == -pyo.summation(m.p, m.x_r) + pyo.summation(m.p, m.y)
+    model.ObjConstraint = pyo.Constraint(model.I,model.J, rule=cons_obj)
 
     def cons_discharge_cap(m, j):
         return sum(m.x[i,j] for i in m.I) <= m.v[j]
@@ -196,18 +201,42 @@ for k in range(1, N_days):
     cap_end = instance.v[48].value
 
     ### Output generation part #####
-    with open('result.csv','a') as f1: # Results are appended in one file
+    # Results are appended in one file
+    with open('profits.csv','a') as f4:
+        writer4 = csv.writer(f4,
+                                delimiter = '\t',
+                                lineterminator = '\n',) 
+        row4 =  -instance.obj.value
+        writer4.writerow([row4])
+    with open('discharging.csv','a') as f1,open('charging.csv','a') as f2,open('volume.csv','a') as f3: 
         for v in instance.component_objects(pyo.Var,active = True):
             varobject = getattr(instance, str(v))
-            writer = csv.writer(f1, 
+            writer1 = csv.writer(f1, 
                                 delimiter = '\t',
                                 lineterminator = '\n',)
+            writer2 = csv.writer(f2, 
+                                delimiter = '\t',
+                                lineterminator = '\n',)
+            writer3 = csv.writer(f3, 
+                                delimiter = '\t',
+                                lineterminator = '\n',) 
             for index in varobject:
-                row =  (v,
-                        index, 
-                        varobject[index].value)
+                if str(v) == "x":
+                    row1 =  (v,
+                            index,
+                            varobject[index].value)
+                elif str(v) == "y":
+                    row2 =  (v,
+                            index,
+                            varobject[index].value)
+                elif str(v) == "v":
+                    row3 =  (v,
+                            index,
+                            varobject[index].value)
                 try:
-                    writer.writerow(row)
+                    writer1.writerow(row1)
+                    writer2.writerow(row2)
+                    writer3.writerow(row3)
                 except:
                     print("Something went wrong when writing the row")
 
