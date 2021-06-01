@@ -1,0 +1,19 @@
+# Python Libraries required
+xlrd
+https://anaconda.org/anaconda/xlrd
+
+openpyxl
+https://anaconda.org/anaconda/openpyxl
+
+pyomo
+https://pyomo.readthedocs.io/en/stable/installation.html#using-conda
+
+pandas
+https://pandas.pydata.org/pandas-docs/stable/getting_started/install.html
+
+numpy
+https://numpy.org/install/
+
+# Optimisation solver
+glpk
+https://anaconda.org/conda-forge/glpk
