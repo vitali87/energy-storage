@@ -9,7 +9,7 @@ n_hlf_hrs = 48 # There are 48 half-hours in a day
 cap_max = 4 # max volume of storage is 4MWh
 discharge_rate = charge_rate = 1 # discharge/charge rate possible for half hour is 1MW
 n_markets = 3 # How many market are being considered?
-dch_loss_rate = ch_loss_rate = 0.05 # Fraction of energy imported/exported from/to grid which is lost prior to reaching storage/grid 
+dch_loss_rate = ch_loss_rate = 0.05 # Fraction of energy imported/exported from/to grid which is lost prior to reaching storage/grid
 
 ## Pre-processing part####
 
@@ -17,9 +17,12 @@ dch_loss_rate = ch_loss_rate = 0.05 # Fraction of energy imported/exported from/
 t = range(1,n_hlf_hrs + 1)
 
 # This will be used also in Post-processing part
-dt = pd.date_range(start='01/01/2018 00:00:00', 
-                   end='31/12/2020 23:30:00', 
+dt = pd.date_range(start='01/01/2018 00:00:00',
+                   end='31/12/2020 23:30:00',
                    freq="0.5H")
+dtd = pd.date_range(start='01/01/2018 00:00:00',
+                   end='31/12/2020 23:30:00',
+                   freq="24H")
 n_days = int(len(dt)/n_hlf_hrs)
 
 # Reading Market 1 and 3 data
@@ -36,10 +39,13 @@ df3 = pd.read_excel(r'Copy of Market Data.xlsx',
 x = np.array(df3["Market 3 Price [£/MWh]"])
 y3 = np.repeat(x, n_hlf_hrs, axis=0)
 
-# Inital value for storage level at onset of optimisation. 
-# Assuming half full at start. 
+# Inital value for storage level at onset of optimisation.
+# Assuming half full at start.
 # It'll naturally fluctuate after each optimisation
-cap_end = cap_max/2 
+cap_end = cap_max/2
+
+# These dataframes collect results
+df_OBJ = df_X = df_Y = df_V = pd.DataFrame()
 
 ## Iterative optimisation part: one for each day ####
 for k in range(1, n_days + 1):
@@ -50,10 +56,10 @@ for k in range(1, n_days + 1):
     y1_ = y1[idx_start:idx_end]
     y2_ = y2[idx_start:idx_end]
     y3_ = y3[idx_start:idx_end]
-    M1data = {'I':1,'J':t,'p':y1_} 
-    M2data = {'I':2,'J':t,'p':y2_}   
-    M3data = {'I':3,'J':t,'p':y3_} 
-    
+    M1data = {'I':1,'J':t,'p':y1_}
+    M2data = {'I':2,'J':t,'p':y2_}
+    M3data = {'I':3,'J':t,'p':y3_}
+
     # Converting to Panda's df and row-binding
     M1 = pd.DataFrame(M1data)
     M2 = pd.DataFrame(M2data)
@@ -62,24 +68,24 @@ for k in range(1, n_days + 1):
 
     # Saving input file for the AbstractModel
     M.to_csv("data.csv", index=False)
-    
+
     ### Modelling part ####
     opt = pyo.SolverFactory('glpk')
-    
+
     model = pyo.AbstractModel()
-    
+
     model.m = pyo.Param(within=pyo.NonNegativeIntegers,default = n_markets)
     model.n = pyo.Param(within=pyo.NonNegativeIntegers,default = n_hlf_hrs)
-    
+
     model.I = pyo.RangeSet(1, model.m)
     model.J = pyo.RangeSet(1, model.n)
 
-    model.p = pyo.Param(model.I,model.J) # Prices in Market 1 
+    model.p = pyo.Param(model.I,model.J) # Prices in Market 1
     model.cap = pyo.Param(default = cap_max) # Maximum volume of energy that the battery can store (MWh)
     model.dch_r = pyo.Param(default = discharge_rate) # discharge rate possible for half hour is 1MW
     model.ch_r = pyo.Param(default = charge_rate) # charge rate possible for half hour is 1MW
-    model.dch_loss_r = pyo.Param(default = dch_loss_rate) 
-    model.ch_loss_r = pyo.Param(default = ch_loss_rate) 
+    model.dch_loss_r = pyo.Param(default = dch_loss_rate)
+    model.ch_loss_r = pyo.Param(default = ch_loss_rate)
 
     # Discharging variables for Market 1,2,3
     model.x = pyo.Var(model.I,model.J, domain=pyo.NonNegativeReals)
@@ -97,7 +103,7 @@ for k in range(1, n_days + 1):
     model.used = pyo.Var(domain=pyo.Binary)
     # Binary charging/discharging mode of Market 3: 1 - discharging, 0 - charging
     model.mode_3 = pyo.Var(domain=pyo.Binary)
-    # Objective 
+    # Objective
     model.obj = pyo.Var()
 
     # Objective function: maximise daily arbitrage profit
@@ -131,8 +137,8 @@ for k in range(1, n_days + 1):
         def cons_volume_change(m,j):
             if j == 1:
                 # Storage volume resumes from same level where it stopped in previous optimisation
-                return (m.v[j] == cap_end) 
-            # Import into storage incures losses, 
+                return (m.v[j] == cap_end)
+            # Import into storage incures losses,
             # so actual volume imported during half-hour period is less than actual charge
             return  (m.v[j] ==  m.v[j-1] - sum(m.x[i,j] - m.y[i,j] for i in m.I))
         model.VolumeChangeConstraint = pyo.Constraint(model.J, rule=cons_volume_change)
@@ -140,8 +146,8 @@ for k in range(1, n_days + 1):
         def cons_volume_change(m,j):
             if j == 1:
                 # Storage volume resumes from same level where it stopped in previous optimisation
-                return (m.v[j] == cap_end) 
-            # Import into storage incures losses, 
+                return (m.v[j] == cap_end)
+            # Import into storage incures losses,
             # so actual volume imported during half-hour period is less than actual charge
             return  (m.v[j] ==  m.v[j-1] - sum(m.x[i,j] - m.y_r[i,j] for i in m.I))
         model.VolumeChangeConstraint = pyo.Constraint(model.J, rule=cons_volume_change)
@@ -192,9 +198,9 @@ for k in range(1, n_days + 1):
 
     ### Data read ####
     data = pyo.DataPortal()
-    data.load(filename = 'data.csv',  
+    data.load(filename = 'data.csv',
                 param = model.p)
-    
+
     ### Solve the problem ####
     instance = model.create_instance(data)
     results = opt.solve(instance)
@@ -203,53 +209,45 @@ for k in range(1, n_days + 1):
     cap_end = instance.v[48].value
 
     ### Output generation part #####
+    dt_obj = pd.to_datetime(dtd.values[k-1])
+    dt_v = pd.to_datetime(dt.values[idx_start:idx_end])
+    dt_xy = dt_v.strftime("%Y-%m-%d %H:%M:%S").tolist()*n_markets # x & y have market index, so dates repeat
+    
+    df_obj = pd.DataFrame.from_dict(instance.obj.extract_values(),
+                                    orient='index',
+                                    columns=[str(instance.obj)])
+    df_obj['obj'] = df_obj['obj'].apply(lambda x: x*-1) # Reversing sign as we minimise negative profit
+    df_obj["dt"] = str(dt_obj.date())
 
-    # Saving profits: Results are appended in one file
-    with open('profits.csv','a') as f4:
-        writer4 = csv.writer(f4,
-                                delimiter = '\t',
-                                lineterminator = '\n',) 
-        row4 =  -instance.obj.value
-        try:
-            writer4.writerow([row4]) 
-        except:
-            print("Something went wrong when writing row")
+    df_x = pd.DataFrame.from_dict(instance.x.extract_values(),
+                                orient='index',
+                                columns=[str(instance.x)])
+    df_x["dt"] = dt_xy
 
-    # Saving other variables
-    with open('discharging.csv','a') as f1,open('charging.csv','a') as f2,open('volume.csv','a') as f3: 
-        for v in instance.component_objects(pyo.Var,active = True):
-            varobject = getattr(instance, str(v))
-            writer1 = csv.writer(f1, 
-                                delimiter = '\t',
-                                lineterminator = '\n',)
-            writer2 = csv.writer(f2, 
-                                delimiter = '\t',
-                                lineterminator = '\n',)
-            writer3 = csv.writer(f3, 
-                                delimiter = '\t',
-                                lineterminator = '\n',) 
-            for index in varobject:
-                if str(v) == "x":
-                    row1 =  (v,
-                            index,
-                            varobject[index].value)
-                elif str(v) == "y":
-                    row2 =  (v,
-                            index,
-                            varobject[index].value)
-                elif str(v) == "v":
-                    row3 =  (v,
-                            index,
-                            varobject[index].value)
-                try:
-                    writer1.writerow(row1)
-                    writer2.writerow(row2)
-                    writer3.writerow(row3)
-                except:
-                    print("Something went wrong when writing row")
+    df_y = pd.DataFrame.from_dict(instance.y.extract_values(),
+                                orient='index',
+                                columns=[str(instance.y)])
+    df_y["dt"] = dt_xy
+    
+    df_v = pd.DataFrame.from_dict(instance.v.extract_values(),
+                                orient='index',
+                                columns=[str(instance.v)])
+    df_v["dt"] = dt_v
 
-    ### Show progress of optimisation ####  
+    df_OBJ = pd.concat([df_OBJ,df_obj])
+    df_X = pd.concat([df_X,df_x])
+    df_Y = pd.concat([df_Y,df_y])
+    df_V = pd.concat([df_V,df_v])
+
+    ### Show progress of optimisation ####
     print("Day ",k,"/",n_days," optimisation finished",sep="")
 
-## Post processing ####
-profits_ = pd.read_csv("profits.csv",header=None)   
+## Post processing: saving profits & other variables ####
+df_OBJ.to_excel(excel_writer = "profit.xlsx",
+                  sheet_name = "daily_profits")
+df_X.to_excel(excel_writer = "discharging.xlsx",
+                  sheet_name = "discharging")
+df_Y.to_excel(excel_writer = "charging.xlsx",
+                  sheet_name = "charging")
+df_V.to_excel(excel_writer = "volume.xlsx",
+                  sheet_name = "volume")
