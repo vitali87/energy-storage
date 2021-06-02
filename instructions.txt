@@ -1,2 +1,0 @@
-# Please use ht efollowing command to run the model in terminal
-pyomo solve energy_storage_model.py --solver='glpk'
