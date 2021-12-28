@@ -22,7 +22,7 @@ dt = pd.date_range(start='01/01/2018 00:00:00',
 dtd = pd.date_range(start='01/01/2018 00:00:00',
                    end='31/12/2020 23:30:00',
                    freq="24H")
-n_days = int(len(dt)/n_hlf_hrs)
+n_days = len(dt) // n_hlf_hrs
 
 # Reading Market 1 and 3 data
 df12 = pd.read_excel(r'Copy of Market Data.xlsx',
